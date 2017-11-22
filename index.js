@@ -2,10 +2,15 @@
 
 const AWS = require('aws-sdk');
 const _ = require('underscore');
+const underscore =  require('lodash');
 
 class VPCPlugin {
-  constructor(serverless) {
+  constructor(serverless, options) {
     this.serverless = serverless;
+    this.provider = 'aws';
+    this.stage = options.stage || underscore.get(serverless, 'service.provider.stage')
+    this.region = options.region || underscore.get(serverless, 'service.provider.region');
+    this.aws = this.serverless.getProvider(this.provider);
 
     /* hooks are the acutal code that will run when called */
     this.hooks = {
@@ -18,11 +23,9 @@ class VPCPlugin {
    * that were set in serverless config file
    * @returns {Promise}
    */
-  updateVpcConfig() {
-    const awsCreds = this.serverless.providers.aws.getCredentials();
+   updateVpcConfig() {
 
-    AWS.config.update(awsCreds);
-    this.ec2 = new AWS.EC2();
+    
 
     this.serverless.cli.log('Updating VPC config...');
     const service = this.serverless.service;
@@ -31,14 +34,14 @@ class VPCPlugin {
     if (service.custom.vpc.vpcName == null || service.custom.vpc.subnetNames == null ||
       service.custom.vpc.securityGroupNames == null) {
       throw new Error('Serverless file is not configured correctly. Please see README for proper setup.');
-    }
+  }
 
 
     // Returns the vpc with subnet and security group ids
     return this.getVpcId(service.custom.vpc.vpcName).then((vpcId) => {
       const promises = [
-        this.getSubnetIds(vpcId, service.custom.vpc.subnetNames),
-        this.getSecurityGroupIds(vpcId, service.custom.vpc.securityGroupNames),
+      this.getSubnetIds(vpcId, service.custom.vpc.subnetNames),
+      this.getSecurityGroupIds(vpcId, service.custom.vpc.securityGroupNames),
       ];
 
       return (Promise.all(promises).then((values) => {
@@ -65,7 +68,7 @@ class VPCPlugin {
    * @param {string} vpcName
    * @returns {Promise.<string>}
    */
-  getVpcId(vpcName) {
+   getVpcId(vpcName) {
     const vpcParams = {
       Filters: [{
         Name: 'tag:Name',
@@ -73,14 +76,14 @@ class VPCPlugin {
       }],
     };
 
-    return this.ec2.describeVpcs(vpcParams).promise().then((data) => {
+    return this.aws.request('EC2','describeVpcs', vpcParams,     this.stage ,    this.region ).then((data) => {
       // If it cannot find a vpc, vpc does not exist for that name
       if (data.Vpcs.length === 0) {
         throw new Error('Invalid vpc name, it does not exist');
       }
       return data.Vpcs[0].VpcId;
     });
-  }
+    }
 
   /**
    * Returns the promise that contains the subnet IDs
@@ -89,7 +92,7 @@ class VPCPlugin {
    * @param {string[]} subnetNames
    * @returns {Promise.<string[]>}
    */
-  getSubnetIds(vpcId, subnetNames) {
+   getSubnetIds(vpcId, subnetNames) {
     const paramsSubnet = {
       Filters: [{
         Name: 'vpc-id',
@@ -100,7 +103,7 @@ class VPCPlugin {
       }],
     };
 
-    return this.ec2.describeSubnets(paramsSubnet).promise().then((data) => {
+    return this.aws.request('EC2','describeSubnets',paramsSubnet,     this.stage ,    this.region).then((data) => {
       if (data.Subnets.length === 0) {
         throw new Error('Invalid subnet name, it does not exist');
       }
@@ -134,7 +137,7 @@ class VPCPlugin {
    * @param {string[]} securityGroupNames
    * @returns {Promise.<string[]>}
    */
-  getSecurityGroupIds(vpcId, securityGroupNames) {
+   getSecurityGroupIds(vpcId, securityGroupNames) {
     const paramsSecurity = {
       Filters: [{
         Name: 'vpc-id',
@@ -146,7 +149,7 @@ class VPCPlugin {
 
     };
 
-    return this.ec2.describeSecurityGroups(paramsSecurity).promise().then((data) => {
+    return this.aws.request('EC2','describeSecurityGroups',paramsSecurity,     this.stage ,    this.region).then((data) => {
       if (data.SecurityGroups.length === 0) {
         throw new Error('Invalid security group name, it does not exist');
       }
